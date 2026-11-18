@@ -1,31 +1,64 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Heart, ArrowRight } from 'lucide-react';
-import Link from 'next/link';
+import { Heart } from 'lucide-react';
+import { FoundButton } from '@/components/ui/found-button';
+
+const floatingWords = ['Forever', 'Together', 'Love', 'Understanding', 'Home'];
 
 export function CTASection() {
   return (
-    <section className="relative overflow-hidden py-24 sm:py-32">
-      <div className="absolute inset-0 bg-gradient-rose" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.15),transparent_60%)]" />
+    <section className="relative section-space bg-cinematic overflow-hidden">
+      {/* Floating words */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none select-none">
+        {floatingWords.map((word, i) => (
+          <motion.span
+            key={i}
+            className="absolute font-display font-light text-white/10 text-3xl sm:text-5xl max-sm:hidden whitespace-nowrap"
+            style={{
+              left: `${10 + i * 18}%`,
+              top: `${15 + (i % 3) * 25}%`,
+            }}
+            animate={{
+              y: [0, -15, 0],
+              opacity: [0.08, 0.15, 0.08],
+            }}
+            transition={{
+              duration: 7 + i,
+              repeat: Infinity,
+              ease: 'easeInOut',
+              delay: i * 0.5,
+            }}
+          >
+            {word}
+          </motion.span>
+        ))}
+      </div>
 
-      {/* Floating hearts */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <motion.div
-          className="heart-deco top-10 left-[10%] text-white/10"
-          animate={{ y: [0, -20, 0], rotate: [0, 10, 0] }}
-          transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-        >
-          <Heart className="h-16 w-16 fill-current" />
-        </motion.div>
-        <motion.div
-          className="heart-deco bottom-10 right-[15%] text-white/10"
-          animate={{ y: [0, -15, 0], rotate: [0, -8, 0] }}
-          transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
-        >
-          <Heart className="h-12 w-12 fill-current" />
-        </motion.div>
+      {/* Intertwined line motif */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <svg className="absolute top-0 left-0 w-full h-full opacity-20" viewBox="0 0 1440 600" preserveAspectRatio="none">
+          <motion.path
+            d="M-50 300 C300 200, 600 400, 720 350 S1200 250, 1490 320"
+            stroke="white"
+            strokeWidth="2"
+            fill="none"
+            initial={{ pathLength: 0, opacity: 0 }}
+            whileInView={{ pathLength: 1, opacity: 0.4 }}
+            viewport={{ once: true }}
+            transition={{ duration: 2.5 }}
+          />
+          <motion.path
+            d="M-50 320 C300 240, 600 380, 720 360 S1200 280, 1490 340"
+            stroke="white"
+            strokeWidth="1.5"
+            fill="none"
+            initial={{ pathLength: 0, opacity: 0 }}
+            whileInView={{ pathLength: 1, opacity: 0.3 }}
+            viewport={{ once: true }}
+            transition={{ duration: 3, delay: 0.3 }}
+          />
+        </svg>
       </div>
 
       <div className="container-page relative z-10 text-center">
@@ -33,29 +66,32 @@ export function CTASection() {
           initial={{ opacity: 0, y: 30 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          transition={{ duration: 0.7 }}
+          transition={{ duration: 0.8 }}
         >
-          <h2 className="mb-6 font-display text-section font-bold text-white sm:text-5xl">
-            Your Forever Story Could Begin Here.
+          <motion.div
+            animate={{ scale: [1, 1.1, 1] }}
+            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+            className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm"
+          >
+            <Heart className="h-8 w-8 text-white fill-white" />
+          </motion.div>
+
+          <h2 className="mb-6 font-display font-bold text-white text-[clamp(2rem,6vw,4.5rem)] leading-tight">
+            Your Forever Story Begins
+            <br />
+            With Being <span className="text-found-gold">FOUND</span>.
           </h2>
-          <p className="mx-auto mb-10 max-w-xl text-lg text-white/85">
+          <p className="mx-auto mb-10 max-w-xl text-lg text-white/85 leading-relaxed">
             Join FOUND and take the first step toward a relationship built on
             understanding, shared values, and lifelong commitment.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              href="/auth/register"
-              className="btn w-full sm:w-auto bg-white text-found-rose shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
-            >
+            <FoundButton href="/auth/register" variant="primary" size="lg" className="bg-white text-found-rose shadow-2xl hover:shadow-3xl">
               Create Your FOUND Profile
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-            <Link
-              href="/how-it-works"
-              className="btn w-full sm:w-auto border-2 border-white/40 text-white hover:bg-white/10"
-            >
+            </FoundButton>
+            <FoundButton href="/how-it-works" variant="outline" size="lg" className="border-white/40 text-white hover:bg-white/10 hover:border-white">
               Learn More
-            </Link>
+            </FoundButton>
           </div>
         </motion.div>
       </div>
