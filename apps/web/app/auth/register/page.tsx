@@ -5,10 +5,19 @@ import { motion } from 'framer-motion';
 import { Eye, EyeOff, Mail, Lock, User, Calendar, ArrowRight, Check } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { FoundPetalRain } from '@/components/ui/found-petal-rain';
+import {
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  updateProfile,
+} from 'firebase/auth';
+import { auth } from '@/lib/firebase';
+import { createUserDocument, createProfileDocument, isAdult, calculateAge } from '@/lib/firestore';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { validateEmail, validatePassword } from '@/lib/utils';
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -20,17 +29,23 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
 
   const passwordCheck = validatePassword(password);
-  const isAdult = dob ? new Date(dob).getFullYear() <= new Date().getFullYear() - 18 : false;
+  const age = dob ? calculateAge(dob) : 0;
+  const adult = dob ? isAdult(dob) : false;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
+    // Client-side validation
+    if (!name.trim()) {
+      setError('Please enter your full name.');
+      return;
+    }
     if (!validateEmail(email)) {
       setError('Please enter a valid email address.');
       return;
     }
-    if (!isAdult) {
+    if (!adult) {
       setError('You must be at least 18 years old to register.');
       return;
     }
@@ -48,11 +63,58 @@ export default function RegisterPage() {
     }
 
     setLoading(true);
-    // TODO: Milestone 2 — call backend registration API
-    setTimeout(() => {
+    try {
+      // 1. Create Firebase Auth account
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+      const user = userCredential.user;
+
+      // 2. Update display name
+      await updateProfile(user, { displayName: name });
+
+      // 3. Send email verification
+      await sendEmailVerification(user);
+
+      // 4. Create Firestore user record (UID = doc ID)
+      await createUserDocument(user.uid, {
+        displayName: name,
+        email,
+        dateOfBirth: dob,
+        emailVerified: false,
+        onboardingStatus: 'incomplete',
+      });
+
+      // 5. Create empty profile document
+      await createProfileDocument(user.uid, {
+        publicDisplayName: name,
+        age: calculateAge(dob),
+        visibility: 'private',
+      });
+
+      // 6. Redirect to verification page
+      router.replace('/auth/verify-email');
+    } catch (err: unknown) {
+      const firebaseError = err as { code?: string; message?: string };
+      let message = 'Registration failed. Please try again.';
+      if (firebaseError.code === 'auth/email-already-in-use') {
+        message = 'This email is already registered. Please sign in instead.';
+      } else if (firebaseError.code === 'auth/invalid-email') {
+        message = 'This email address is not valid.';
+      } else if (
+        firebaseError.code === 'auth/weak-password' ||
+        firebaseError.code === 'auth/password-does-not-meet-requirements'
+      ) {
+        message = 'Password is too weak. Use at least 8 characters with uppercase, lowercase, and a number.';
+      } else if (firebaseError.code === 'auth/operation-not-allowed') {
+        message = 'Email/password accounts are not enabled. Please contact support.';
+      }
+      setError(message);
+    } finally {
       setLoading(false);
-      setError('Registration will be available after backend setup (Milestone 2).');
-    }, 800);
+    }
   };
 
   return (
@@ -206,7 +268,7 @@ export default function RegisterPage() {
                       required
                     />
                   </div>
-                  {!isAdult && dob && (
+                  {dob && !adult && (
                     <p className="mt-1 text-xs text-red-600">You must be at least 18 years old.</p>
                   )}
                 </div>
@@ -287,7 +349,7 @@ export default function RegisterPage() {
                   disabled={loading}
                   className="btn-primary w-full !py-4 text-base"
                 >
-                  {loading ? 'Creating profile...' : 'Create Profile'}
+                  {loading ? 'Creating your profile...' : 'Create Profile'}
                   {!loading && <ArrowRight className="h-4 w-4" />}
                 </button>
               </form>

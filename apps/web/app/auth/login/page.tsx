@@ -5,17 +5,22 @@ import { motion } from 'framer-motion';
 import { Eye, EyeOff, Mail, Lock, ArrowRight, Sparkles } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { FoundPetalRain } from '@/components/ui/found-petal-rain';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { validateEmail } from '@/lib/utils';
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -29,11 +34,56 @@ export default function LoginPage() {
     }
 
     setLoading(true);
-    // TODO: Milestone 2 — call backend login API
-    setTimeout(() => {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      // Redirect to dashboard or onboarding (Firebase Auth state persistence handles session)
+      router.replace('/onboarding');
+    } catch (err: unknown) {
+      const firebaseError = err as { code?: string; message?: string };
+      let message = 'Login failed. Please try again.';
+      if (
+        firebaseError.code === 'auth/invalid-credential' ||
+        firebaseError.code === 'auth/wrong-password' ||
+        firebaseError.code === 'auth/user-not-found'
+      ) {
+        message = 'Incorrect email or password.';
+      } else if (firebaseError.code === 'auth/too-many-requests') {
+        message = 'Too many failed attempts. Please try again later or reset your password.';
+      } else if (firebaseError.code === 'auth/user-disabled') {
+        message = 'This account has been disabled. Please contact support.';
+      } else if (firebaseError.code === 'auth/invalid-email') {
+        message = 'This email address is not valid.';
+      }
+      setError(message);
+    } finally {
       setLoading(false);
-      setError('Authentication will be available after backend setup (Milestone 2).');
-    }, 800);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!validateEmail(email)) {
+      setError('Please enter your email address first to reset your password.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetSent(true);
+    } catch (err: unknown) {
+      const firebaseError = err as { code?: string; message?: string };
+      if (
+        firebaseError.code === 'auth/user-not-found' ||
+        firebaseError.code === 'auth/invalid-email'
+      ) {
+        // Don't reveal whether email exists (security best practice)
+        setResetSent(true);
+      } else {
+        setError('Failed to send reset email. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -44,17 +94,14 @@ export default function LoginPage() {
           <div className="auth-panel-cinematic absolute inset-0" />
           <FoundPetalRain variant="multi" count={20} className="opacity-70" />
 
-          {/* Decorative heart glow */}
           <div className="absolute -left-20 -top-20 h-80 w-80 rounded-full bg-found-rose/20 blur-3xl" />
           <div className="absolute -bottom-32 -right-20 h-96 w-96 rounded-full bg-found-gold/15 blur-3xl" />
 
           <div className="relative z-10 flex h-full flex-col justify-between p-12 xl:p-16">
-            {/* Top: Logo */}
             <Link href="/" aria-label="FOUND Home">
               <Logo variant="white" className="h-11 w-auto" />
             </Link>
 
-            {/* Center: Cinematic quote */}
             <div className="max-w-md">
               <motion.div
                 initial={{ opacity: 0, y: 24 }}
@@ -75,7 +122,6 @@ export default function LoginPage() {
               </motion.div>
             </div>
 
-            {/* Bottom: Trust indicators */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -102,7 +148,6 @@ export default function LoginPage() {
 
         {/* Right Panel — Glass login card */}
         <div className="relative flex w-full flex-1 items-center justify-center bg-gradient-to-b from-found-blush via-white to-found-ivory px-4 py-12 lg:px-16">
-          {/* Subtle background decoration */}
           <FoundPetalRain variant="rose" count={8} className="opacity-40" />
           <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_60%_40%_at_50%_0%,rgba(244,123,154,0.08),transparent_70%)]" />
 
@@ -112,7 +157,6 @@ export default function LoginPage() {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="w-full max-w-md"
           >
-            {/* Mobile logo (only on small screens) */}
             <div className="mb-8 text-center lg:hidden">
               <Link href="/">
                 <Logo className="mx-auto h-12 w-auto" />
@@ -139,7 +183,17 @@ export default function LoginPage() {
                 </motion.div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-5">
+              {resetSent && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-6 rounded-2xl bg-green-50/80 p-4 text-sm text-green-700 backdrop-blur-sm"
+                >
+                  If an account exists for {email}, a password reset link has been sent.
+                </motion.div>
+              )}
+
+              <form onSubmit={handleLogin} className="space-y-5">
                 <div>
                   <label className="mb-2 block text-sm font-medium text-found-plum">
                     Email
@@ -190,12 +244,13 @@ export default function LoginPage() {
                     />
                     Remember me
                   </label>
-                  <Link
-                    href="/auth/forgot-password"
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
                     className="text-sm font-medium text-found-rose hover:text-found-burgundy transition-colors"
                   >
                     Forgot password?
-                  </Link>
+                  </button>
                 </div>
 
                 <button

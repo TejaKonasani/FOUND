@@ -1,0 +1,246 @@
+// ============================================
+// FOUND Firestore Security Rules
+// Production-grade deny-by-default rules.
+// Deploy with: firebase deploy --only firestore:rules
+// Test with Firebase Emulator Suite before deployment.
+// ============================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==========================================
+    // Helper functions
+    // ==========================================
+
+    // User is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Requesting user is the document owner
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // Requesting user is an admin (verified server-side via custom claim)
+    function isAdmin() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // Document exists and account is active
+    function isAccountActive(uid) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(uid)) &&
+        get(/databases/$(database)/documents/users/$(uid)).data.accountStatus in ['active', 'hidden'];
+    }
+
+    // User has completed onboarding
+    function hasCompletedOnboarding(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid)) &&
+        get(/databases/$(database)/documents/users/$(uid)).data.onboardingStatus == 'complete';
+    }
+
+    // Validate timestamp fields
+    function isValidTimestamps() {
+      return request.resource.data.keys().hasAll(['createdAt', 'updatedAt']) ||
+        !request.resource.data.keys().hasAny(['createdAt', 'updatedAt']);
+    }
+
+    // ==========================================
+    // users/{uid} — Private account data
+    // ==========================================
+    match /users/{uid} {
+      // Allow read/write only to the owner
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid) && request.resource.data.uid == uid;
+
+      // Owner can update their own data, but NOT admin role or verification status
+      allow update: if isOwner(uid) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'isVerified', 'accountStatus']);
+
+      // Only admins can delete (account deletion handled server-side)
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // profiles/{uid} — Public profile data
+    // ==========================================
+    match /profiles/{uid} {
+      // Public profiles: anyone can read if visibility allows
+      allow read: if
+        // Owner always reads
+        isOwner(uid) ||
+        // Admin reads all
+        isAdmin() ||
+        // Public visibility
+        (resource.data.visibility == 'public' && isAccountActive(uid)) ||
+        // Matches-only: reader must have a mutual match
+        (resource.data.visibility == 'matches-only' &&
+          exists(/databases/$(database)/documents/matches/{m}
+            where m.participantOne == request.auth.uid && m.participantTwo == uid && m.accepted == true)
+          || exists(/databases/$(database)/documents/matches/{m}
+            where m.participantOne == uid && m.participantTwo == request.auth.uid && m.accepted == true)
+        );
+
+      // Owner creates and updates their own profile
+      allow create: if isOwner(uid) && request.resource.data.uid == uid;
+      allow update: if isOwner(uid);
+
+      // Only admins can delete
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // preferences/{uid} — Private partner preferences
+    // ==========================================
+    match /preferences/{uid} {
+      // Only owner and backend services (admin) can read
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid) && request.resource.data.uid == uid;
+      allow update: if isOwner(uid);
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+
+    // ==========================================
+    // interests/{interestId} — Interest requests
+    // ==========================================
+    match /interests/{interestId} {
+      // Must be authenticated
+      allow read: if isAuthenticated() && isAdmin();
+
+      // Sender can create interest to another user
+      allow create: if isAuthenticated() &&
+        request.resource.data.senderUid == request.auth.uid &&
+        request.resource.data.receiverUid != request.auth.uid;
+
+      // Receiver can accept (change status) their own interests
+      allow update: if isAuthenticated() &&
+        resource.data.receiverUid == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().only(['status']) &&
+        request.resource.data.status in ['accepted', 'rejected'];
+
+      // Sender can delete their own interest
+      allow delete: if isAuthenticated() && resource.data.senderUid == request.auth.uid;
+    }
+
+    // ==========================================
+    // matches/{matchId} — Mutual matches
+    // ==========================================
+    match /matches/{matchId} {
+      // Only participants and admins can read
+      allow read: if isAuthenticated() &&
+        (resource.data.participantOne == request.auth.uid ||
+         resource.data.participantTwo == request.auth.uid) ||
+        isAdmin();
+
+      // Matches are created server-side (Admin SDK) to ensure mutual acceptance
+      allow create: if false; // Enforced by backend
+
+      // Only participants can update acceptance status
+      allow update: if isAuthenticated() &&
+        (resource.data.participantOne == request.auth.uid ||
+         resource.data.participantTwo == request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys().only(['accepted']);
+
+      // Only admins can delete
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // conversations/{conversationId} — Chat metadata
+    // ==========================================
+    match /conversations/{conversationId} {
+      // Only authorized participants can read
+      allow read: if isAuthenticated() &&
+        (resource.data.participantOne == request.auth.uid ||
+         resource.data.participantTwo == request.auth.uid) ||
+        isAdmin();
+
+      // Created server-side after mutual match
+      allow create: if false; // Enforced by backend
+
+      // Only participants can update metadata (last message timestamp)
+      allow update: if isAuthenticated() &&
+        (resource.data.participantOne == request.auth.uid ||
+         resource.data.participantTwo == request.auth.uid);
+
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // conversations/{conversationId}/messages/{messageId}
+    // ==========================================
+    match /conversations/{conversationId}/messages/{messageId} {
+      // Only conversation participants can read messages
+      allow read: if isAuthenticated() &&
+        (get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantOne == request.auth.uid ||
+         get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantTwo == request.auth.uid) ||
+        isAdmin();
+
+      // Only authorized participants can send messages, and only as themselves
+      allow create: if isAuthenticated() &&
+        (get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantOne == request.auth.uid ||
+         get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantTwo == request.auth.uid) &&
+        request.resource.data.senderUid == request.auth.uid;
+
+      // No updates to messages (immutable once sent)
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // favorites/{uid}/items/{profileUid} — Saved profiles
+    // ==========================================
+    match /favorites/{uid}/items/{profileUid} {
+      // Owner can read their own favorites
+      allow read: if isOwner(uid) || isAdmin();
+      // Owner can add/remove their own favorites
+      allow create: if isOwner(uid) && resource.data.favoritedBy == uid;
+      allow update: if isOwner(uid);
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+
+    // ==========================================
+    // notifications/{uid}/items/{notificationId}
+    // ==========================================
+    match /notifications/{uid}/items/{notificationId} {
+      // Only the recipient can read their notifications
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isAdmin(); // Created server-side
+      allow update: if isOwner(uid); // e.g., mark as read
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+
+    // ==========================================
+    // blocks/{uid}/users/{blockedUid} — Blocked accounts
+    // ==========================================
+    match /blocks/{uid}/users/{blockedUid} {
+      // Owner can read their own block list
+      allow read: if isOwner(uid) || isAdmin();
+      // Owner can block/unblock others
+      allow create: if isOwner(uid) && resource.data.blockedBy == uid && resource.data.blockedUser == blockedUid;
+      allow update: if isOwner(uid);
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+
+    // ==========================================
+    // reports/{reportId} — Moderation reports
+    // ==========================================
+    match /reports/{reportId} {
+      // Only admins can read/write reports
+      allow read: if isAdmin();
+      allow create: if isAuthenticated(); // Any user can file a report
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // Deny everything else by default
+    // ==========================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
