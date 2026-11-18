@@ -158,6 +158,18 @@ def respond_to_interest(interest_id: str, receiver_uid: str, status: str) -> boo
     return True
 
 
+def _match_id(uid1: str, uid2: str) -> str:
+    """
+    Deterministic match document ID.
+    Always ordered lexicographically so both users resolve to the same ID:
+    match_{min(uid1,uid2)}_{max(uid1,uid2)}
+    This lets Firestore security rules address the match document directly
+    (rules cannot run collection queries inside exists()).
+    """
+    a, b = sorted([uid1, uid2])
+    return f"match_{a}_{b}"
+
+
 def _create_match_if_mutual(uid1: str, uid2: str) -> None:
     """Create a match if both users have accepted each other."""
     db = get_db()
@@ -171,14 +183,19 @@ def _create_match_if_mutual(uid1: str, uid2: str) -> None:
         .get()
     )
     if reverse:
-        # Mutual match exists — create match document
-        match_data = {
-            "participantOne": min(uid1, uid2),
-            "participantTwo": max(uid1, uid2),
-            "accepted": True,
-            "matchedAt": server_timestamp(),
-        }
-        db.collection("matches").add(match_data)
+        # Mutual match exists — create match document with a deterministic ID
+        a, b = sorted([uid1, uid2])
+        match_id = f"match_{a}_{b}"
+        match_ref = db.collection("matches").document(match_id)
+        # Idempotent: only create if it doesn't already exist
+        if not match_ref.get().exists:
+            match_ref.set({
+                "matchId": match_id,
+                "participantOne": a,
+                "participantTwo": b,
+                "accepted": True,
+                "matchedAt": server_timestamp(),
+            })
 
 
 # ==========================================
@@ -200,9 +217,15 @@ def get_user_matches(uid: str) -> List[Dict[str, Any]]:
         .get()
     )
     result = []
+    seen = set()
     for m in matches:
         data = m.to_dict()
-        data["id"] = m.id
+        # Use the deterministic document ID (stored as matchId field too)
+        match_id = m.id or data.get("matchId")
+        if match_id in seen:
+            continue
+        seen.add(match_id)
+        data["id"] = match_id
         result.append(data)
     return result
 

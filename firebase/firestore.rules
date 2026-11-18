@@ -48,6 +48,26 @@ service cloud.firestore {
         !request.resource.data.keys().hasAny(['createdAt', 'updatedAt']);
     }
 
+    // Deterministic match document ID for a pair of users.
+    // Must match the backend helper _match_id() in firestore_repo.py:
+    //   sorted UIDs joined as "match_{min}_{max}"
+    function matchDocId(uid1, uid2) {
+      return uid1 < uid2 ? 'match_' + uid1 + '_' + uid2
+                         : 'match_' + uid2 + '_' + uid1;
+    }
+
+    // Returns true if an accepted mutual match exists between the requesting
+    // user and the given user. Checks the single deterministic match document
+    // path (Firestore rules cannot run collection queries inside exists()).
+    function hasAcceptedMatch(otherUid) {
+      let mid = matchDocId(request.auth.uid, otherUid);
+      let m = get(/databases/$(database)/documents/matches/$(mid));
+      return m.exists
+        && m.data.participantOne == request.auth.uid
+        && m.data.participantTwo == otherUid
+        && m.data.accepted == true;
+    }
+
     // ==========================================
     // users/{uid} — Private account data
     // ==========================================
@@ -76,13 +96,8 @@ service cloud.firestore {
         isAdmin() ||
         // Public visibility
         (resource.data.visibility == 'public' && isAccountActive(uid)) ||
-        // Matches-only: reader must have a mutual match
-        (resource.data.visibility == 'matches-only' &&
-          exists(/databases/$(database)/documents/matches/{m}
-            where m.participantOne == request.auth.uid && m.participantTwo == uid && m.accepted == true)
-          || exists(/databases/$(database)/documents/matches/{m}
-            where m.participantOne == uid && m.participantTwo == request.auth.uid && m.accepted == true)
-        );
+        // Matches-only: reader must have an accepted mutual match with the profile owner
+        (resource.data.visibility == 'matches-only' && hasAcceptedMatch(uid));
 
       // Owner creates and updates their own profile
       allow create: if isOwner(uid) && request.resource.data.uid == uid;
