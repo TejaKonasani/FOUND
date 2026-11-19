@@ -11,6 +11,7 @@
  *   - initializeTestEnvironment({ firestore: { rules: <file content>, host, port } })
  *   - testEnv.authenticatedContext(uid, tokenOptions?) / unauthenticatedContext()
  *   - assertSucceeds(promise) / assertFails(promise)
+ *   - testEnv.withSecurityRulesDisabled(fn) — simulates Admin SDK writes for server-only docs
  *
  * Coverage:
  *  - users/{uid}: owner read/update, unauthorized access, role-escalation prevention
@@ -85,6 +86,10 @@ function ctx(uid: string | null, opts?: { isAdmin?: boolean; emailVerified?: boo
   });
 }
 
+/**
+ * Seed a user account. Uses privileged seeding because user docs are normally
+ * created server-side; seeding them here simulates the backend/Admin SDK path.
+ */
 async function seedUser(
   uid: string,
   overrides: {
@@ -100,17 +105,18 @@ async function seedUser(
     onboardingStatus = "complete",
     emailVerified = true,
   } = overrides;
-  const c = ctx(uid, { isAdmin, emailVerified });
-  await setDoc(doc(c.firestore(), "users", uid), {
-    uid,
-    email: `${uid}@example.com`,
-    displayName: uid,
-    emailVerified,
-    accountStatus,
-    onboardingStatus,
-    isAdmin,
-    createdAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-01T00:00:00Z",
+  await testEnv.withSecurityRulesDisabled(async (c) => {
+    await setDoc(doc(c.firestore(), "users", uid), {
+      uid,
+      email: `${uid}@example.com`,
+      displayName: uid,
+      emailVerified,
+      accountStatus,
+      onboardingStatus,
+      isAdmin,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    });
   });
 }
 
@@ -133,39 +139,65 @@ async function seedProfile(
   });
 }
 
-async function seedMatch(uid1: string, uid2: string) {
+/**
+ * Seed a match document via privileged seeding. Matches are server-only
+ * (allow create: if false), so they must be seeded with rules disabled.
+ */
+async function seedMatch(uid1: string, uid2: string, accepted = true) {
   const [a, b] = [uid1, uid2].sort();
   const mid = matchId(a, b);
-  const c = ctx(a);
-  await setDoc(doc(c.firestore(), "matches", mid), {
-    matchId: mid,
-    participantOne: a,
-    participantTwo: b,
-    accepted: true,
-    matchedAt: "2026-01-01T00:00:00Z",
+  await testEnv.withSecurityRulesDisabled(async (c) => {
+    await setDoc(doc(c.firestore(), "matches", mid), {
+      matchId: mid,
+      participantOne: a,
+      participantTwo: b,
+      accepted,
+      matchedAt: "2026-01-01T00:00:00Z",
+    });
   });
 }
 
+/**
+ * Seed a conversation (server-only) plus one message via privileged seeding.
+ */
 async function seedConversation(uid1: string, uid2: string): Promise<string> {
   const [a, b] = [uid1, uid2].sort();
   const mid = matchId(a, b);
-  const c = ctx(a);
-  const convRef = await addDoc(collection(c.firestore(), "conversations"), {
-    participantOne: a,
-    participantTwo: b,
-    matchId: mid,
-    createdAt: "2026-01-01T00:00:00Z",
-    lastMessageAt: "2026-01-01T00:00:00Z",
-  });
-  await addDoc(
-    collection(c.firestore(), "conversations", convRef.id, "messages"),
-    {
-      senderUid: a,
-      content: "Hi there",
+  let convId: string;
+  await testEnv.withSecurityRulesDisabled(async (c) => {
+    const convRef = await addDoc(collection(c.firestore(), "conversations"), {
+      participantOne: a,
+      participantTwo: b,
+      matchId: mid,
       createdAt: "2026-01-01T00:00:00Z",
-    }
-  );
-  return convRef.id;
+      lastMessageAt: "2026-01-01T00:00:00Z",
+    });
+    convId = convRef.id;
+    await addDoc(
+      collection(c.firestore(), "conversations", convId, "messages"),
+      {
+        senderUid: a,
+        content: "Hi there",
+        createdAt: "2026-01-01T00:00:00Z",
+      }
+    );
+  });
+  return convId!;
+}
+
+/** Seed a notification item via privileged seeding (server-only create). */
+async function seedNotification(uid: string, id: string, overrides: Record<string, unknown> = {}) {
+  await testEnv.withSecurityRulesDisabled(async (c) => {
+    await setDoc(
+      doc(c.firestore(), "notifications", uid, "items", id),
+      {
+        type: "match",
+        read: false,
+        createdAt: "2026-01-01T00:00:00Z",
+        ...overrides,
+      }
+    );
+  });
 }
 
 async function readDoc(c: RulesTestContext, path: string) {
@@ -184,7 +216,7 @@ async function readCollection(c: RulesTestContext, collPath: string) {
 // ---------------------------------------------------------------------------
 
 describe("users/{uid} — private account", () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
     await seedUser("alice");
   });
 
@@ -247,7 +279,7 @@ describe("users/{uid} — private account", () => {
 // ---------------------------------------------------------------------------
 
 describe("profiles/{uid} — visibility", () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
     await seedUser("alice");
     await seedUser("bob");
   });
@@ -328,7 +360,7 @@ describe("profiles/{uid} — visibility", () => {
 // ---------------------------------------------------------------------------
 
 describe("matches — no forging, no unauthorized update", () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
     await seedUser("alice");
     await seedUser("bob");
     await seedUser("carol");
@@ -404,7 +436,7 @@ describe("matches — no forging, no unauthorized update", () => {
 describe("conversations/messages — matched-only", () => {
   let convId: string;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     await seedUser("alice");
     await seedUser("bob");
     await seedUser("carol");
@@ -502,13 +534,17 @@ describe("conversations/messages — matched-only", () => {
 // ---------------------------------------------------------------------------
 
 describe("preferences/{uid} — private", () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
     await seedUser("alice");
     await seedUser("bob");
-    await setDoc(doc(ctx("alice").firestore(), "preferences", "alice"), {
-      uid: "alice",
-      preferredAgeMin: 25,
-      updatedAt: "2026-01-01T00:00:00Z",
+    // Seed preferences via privileged seeding (user create is allowed but we
+    // want a known baseline that survives the beforeEach clear).
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), "preferences", "alice"), {
+        uid: "alice",
+        preferredAgeMin: 25,
+        updatedAt: "2026-01-01T00:00:00Z",
+      });
     });
   });
 
@@ -551,9 +587,10 @@ describe("preferences/{uid} — private", () => {
 // ---------------------------------------------------------------------------
 
 describe("blocks/{uid}/users & reports", () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
     await seedUser("alice");
     await seedUser("bob");
+    await seedUser("carol");
   });
 
   test("owner can block another user", async () => {
@@ -633,7 +670,7 @@ describe("blocks/{uid}/users & reports", () => {
 // ---------------------------------------------------------------------------
 
 describe("admin authorization", () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
     await seedUser("admin", { isAdmin: true });
     await seedUser("alice");
     await seedProfile("alice", "private");
@@ -648,10 +685,12 @@ describe("admin authorization", () => {
   });
 
   test("admin can read private preferences", async () => {
-    await setDoc(doc(ctx("alice").firestore(), "preferences", "alice"), {
-      uid: "alice",
-      preferredAgeMin: 25,
-      updatedAt: "2026-01-01T00:00:00Z",
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), "preferences", "alice"), {
+        uid: "alice",
+        preferredAgeMin: 25,
+        updatedAt: "2026-01-01T00:00:00Z",
+      });
     });
     await assertSucceeds(
       readDoc(ctx("admin", { isAdmin: true }), "preferences/alice")
@@ -715,7 +754,7 @@ describe("admin authorization", () => {
 // ---------------------------------------------------------------------------
 
 describe("favorites & notifications — owner-scoped", () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
     await seedUser("alice");
     await seedUser("bob");
   });
@@ -827,20 +866,7 @@ describe("favorites & notifications — owner-scoped", () => {
   });
 
   test("owner can update their own notification (e.g. mark read)", async () => {
-    await setDoc(
-      doc(
-        ctx("alice").firestore(),
-        "notifications",
-        "alice",
-        "items",
-        "n1"
-      ),
-      {
-        type: "match",
-        read: false,
-        createdAt: "2026-01-01T00:00:00Z",
-      }
-    );
+    await seedNotification("alice", "n1");
     await assertSucceeds(
       updateDoc(
         doc(
@@ -856,20 +882,7 @@ describe("favorites & notifications — owner-scoped", () => {
   });
 
   test("another user CANNOT read someone else's notifications", async () => {
-    await setDoc(
-      doc(
-        ctx("alice").firestore(),
-        "notifications",
-        "alice",
-        "items",
-        "n1"
-      ),
-      {
-        type: "match",
-        read: false,
-        createdAt: "2026-01-01T00:00:00Z",
-      }
-    );
+    await seedNotification("alice", "n1");
     await assertFails(
       readDoc(ctx("bob"), "notifications/alice/items/n1")
     );
@@ -881,7 +894,7 @@ describe("favorites & notifications — owner-scoped", () => {
 // ---------------------------------------------------------------------------
 
 describe("deny-by-default catch-all", () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
     await seedUser("alice");
   });
 

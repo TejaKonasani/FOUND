@@ -24,8 +24,11 @@ service cloud.firestore {
     }
 
     // Requesting user is an admin (verified server-side via custom claim)
+    // Guard with exists() so a missing user document yields false instead of a
+    // null-evaluation error.
     function isAdmin() {
       return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
     }
 
@@ -90,16 +93,20 @@ service cloud.firestore {
     // profiles/{uid} — Public profile data
     // ==========================================
     match /profiles/{uid} {
-      // Public profiles: anyone can read if visibility allows
+      // Public profiles: anyone can read if visibility allows.
+      // Guard resource.data with exists() so a missing profile doc denies
+      // cleanly instead of raising a null-evaluation error.
       allow read: if
         // Owner always reads
         isOwner(uid) ||
         // Admin reads all
         isAdmin() ||
-        // Public visibility
-        (resource.data.visibility == 'public' && isAccountActive(uid)) ||
+        // Public visibility — document must exist first
+        (exists(/databases/$(database)/documents/profiles/$(uid)) &&
+         resource.data.visibility == 'public' && isAccountActive(uid)) ||
         // Matches-only: reader must have an accepted mutual match with the profile owner
-        (resource.data.visibility == 'matches-only' && hasAcceptedMatch(uid));
+        (exists(/databases/$(database)/documents/profiles/$(uid)) &&
+         resource.data.visibility == 'matches-only' && hasAcceptedMatch(uid));
 
       // Owner creates and updates their own profile
       allow create: if isOwner(uid) && request.resource.data.uid == uid;
@@ -146,8 +153,10 @@ service cloud.firestore {
     // matches/{matchId} — Mutual matches
     // ==========================================
     match /matches/{matchId} {
-      // Only participants and admins can read
+      // Only participants and admins can read. Guard resource.data with exists()
+      // so a missing match document denies cleanly instead of raising a null error.
       allow read: if isAuthenticated() &&
+        exists(/databases/$(database)/documents/matches/$(matchId)) &&
         (resource.data.participantOne == request.auth.uid ||
          resource.data.participantTwo == request.auth.uid) ||
         isAdmin();
@@ -155,8 +164,9 @@ service cloud.firestore {
       // Matches are created server-side (Admin SDK) to ensure mutual acceptance
       allow create: if false; // Enforced by backend
 
-      // Only participants can update acceptance status
+      // Only participants can update acceptance status. Guard resource.data with exists().
       allow update: if isAuthenticated() &&
+        exists(/databases/$(database)/documents/matches/$(matchId)) &&
         (resource.data.participantOne == request.auth.uid ||
          resource.data.participantTwo == request.auth.uid) &&
         request.resource.data.diff(resource.data).affectedKeys().only(['accepted']);
@@ -169,8 +179,9 @@ service cloud.firestore {
     // conversations/{conversationId} — Chat metadata
     // ==========================================
     match /conversations/{conversationId} {
-      // Only authorized participants can read
+      // Only authorized participants can read. Guard resource.data with exists().
       allow read: if isAuthenticated() &&
+        exists(/databases/$(database)/documents/conversations/$(conversationId)) &&
         (resource.data.participantOne == request.auth.uid ||
          resource.data.participantTwo == request.auth.uid) ||
         isAdmin();
@@ -178,8 +189,9 @@ service cloud.firestore {
       // Created server-side after mutual match
       allow create: if false; // Enforced by backend
 
-      // Only participants can update metadata (last message timestamp)
+      // Only participants can update metadata (last message timestamp). Guard exists().
       allow update: if isAuthenticated() &&
+        exists(/databases/$(database)/documents/conversations/$(conversationId)) &&
         (resource.data.participantOne == request.auth.uid ||
          resource.data.participantTwo == request.auth.uid);
 
@@ -190,16 +202,22 @@ service cloud.firestore {
     // conversations/{conversationId}/messages/{messageId}
     // ==========================================
     match /conversations/{conversationId}/messages/{messageId} {
-      // Only conversation participants can read messages
+      // Only conversation participants can read messages. Guard the conversation
+      // lookup with exists() so a missing conversation denies cleanly instead of
+      // raising a null-evaluation error.
+      function isConversationParticipant() {
+        let conv = get(/databases/$(database)/documents/conversations/$(conversationId));
+        return conv.exists &&
+          (conv.data.participantOne == request.auth.uid ||
+           conv.data.participantTwo == request.auth.uid);
+      }
+
       allow read: if isAuthenticated() &&
-        (get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantOne == request.auth.uid ||
-         get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantTwo == request.auth.uid) ||
-        isAdmin();
+        (isConversationParticipant() || isAdmin());
 
       // Only authorized participants can send messages, and only as themselves
       allow create: if isAuthenticated() &&
-        (get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantOne == request.auth.uid ||
-         get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantTwo == request.auth.uid) &&
+        isConversationParticipant() &&
         request.resource.data.senderUid == request.auth.uid;
 
       // No updates to messages (immutable once sent)
