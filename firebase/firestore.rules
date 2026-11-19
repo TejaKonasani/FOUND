@@ -59,13 +59,15 @@ service cloud.firestore {
     // Returns true if an accepted mutual match exists between the requesting
     // user and the given user. Checks the single deterministic match document
     // path (Firestore rules cannot run collection queries inside exists()).
+    // FIXED: check participants in EITHER order (the deterministic ID sorts UIDs,
+    // so the requester may be participantOne or participantTwo).
     function hasAcceptedMatch(otherUid) {
       let mid = matchDocId(request.auth.uid, otherUid);
       let m = get(/databases/$(database)/documents/matches/$(mid));
       return m.exists
-        && m.data.participantOne == request.auth.uid
-        && m.data.participantTwo == otherUid
-        && m.data.accepted == true;
+        && m.data.accepted == true
+        && ((m.data.participantOne == request.auth.uid && m.data.participantTwo == otherUid)
+         || (m.data.participantTwo == request.auth.uid && m.data.participantOne == otherUid));
     }
 
     // ==========================================
@@ -212,7 +214,8 @@ service cloud.firestore {
       // Owner can read their own favorites
       allow read: if isOwner(uid) || isAdmin();
       // Owner can add/remove their own favorites
-      allow create: if isOwner(uid) && resource.data.favoritedBy == uid;
+      // FIXED: use request.resource.data (there is no existing resource on create)
+      allow create: if isOwner(uid) && request.resource.data.favoritedBy == uid;
       allow update: if isOwner(uid);
       allow delete: if isOwner(uid) || isAdmin();
     }
@@ -235,7 +238,8 @@ service cloud.firestore {
       // Owner can read their own block list
       allow read: if isOwner(uid) || isAdmin();
       // Owner can block/unblock others
-      allow create: if isOwner(uid) && resource.data.blockedBy == uid && resource.data.blockedUser == blockedUid;
+      // FIXED: use request.resource.data (there is no existing resource on create)
+      allow create: if isOwner(uid) && request.resource.data.blockedBy == uid && request.resource.data.blockedUser == blockedUid;
       allow update: if isOwner(uid);
       allow delete: if isOwner(uid) || isAdmin();
     }
