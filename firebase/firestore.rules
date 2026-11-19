@@ -140,12 +140,16 @@ service cloud.firestore {
         request.resource.data.senderUid == request.auth.uid &&
         request.resource.data.receiverUid != request.auth.uid;
 
-      // Receiver can accept (change status) their own interests.
-      // affectedKeys().only() is not valid rules syntax; use hasAll() + size() instead.
+      // Receiver can accept/reject their own interest.
+      // Allowed to change: status and updatedAt. Forbidden: senderUid, receiverUid, createdAt.
+      // affectedKeys().only() is not valid rules syntax; use hasAll() + hasNone() instead.
       allow update: if isAuthenticated() &&
         resource.data.receiverUid == request.auth.uid &&
+        // status must be among the changed keys (acceptance requires a status transition)
         request.resource.data.diff(resource.data).affectedKeys().hasAll(['status']) &&
-        request.resource.data.diff(resource.data).affectedKeys().size() == 1 &&
+        // forbidden identity/timestamp fields must not change
+        request.resource.data.diff(resource.data).affectedKeys().hasNone(['senderUid', 'receiverUid', 'createdAt']) &&
+        // new status must be a valid value
         request.resource.data.status in ['accepted', 'rejected'];
 
       // Sender can delete their own interest
