@@ -28,13 +28,13 @@ Every change to FOUND code, Firestore rules, or security policies **must** follo
 - Prevent role escalation (`isAdmin`, `accountStatus`, `isVerified` fields protected).
 - Require verified mutual consent for matches and messaging.
 - Prevent message impersonation and unauthorized message modification/deletion.
-- Validate field-level diff constraints using supported rules syntax (`hasAll`, `hasNone`, `size` — **not** `.only()`).
+- Validate field-level diff constraints using supported rules syntax (`hasAll`, `!hasAny`, `size` — **not** `.only()` or `hasNone()`).
 - Guard document-existence checks with `exists(path)` — never rely on `get().exists`.
 
 ## Valid Firestore Rules Syntax Notes
 
 - Use `exists(path)` for document existence checks. Do not use `get(path).exists` (throws in some emulator versions).
-- Use `affectedKeys().hasAll([...])` and `affectedKeys().hasNone([...])` / `affectedKeys().size()` for field-diff constraints. The method `.only([...])` is **not** valid rules syntax.
+- Use `affectedKeys().hasAll([...])` and `!affectedKeys().hasAny([...])` / `affectedKeys().size()` for field-diff constraints. The methods `.only([...])` and `hasNone([...])` are **not** valid rules syntax.
 
 ## Test Execution Commands
 

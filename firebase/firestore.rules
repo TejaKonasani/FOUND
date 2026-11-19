@@ -142,13 +142,13 @@ service cloud.firestore {
 
       // Receiver can accept/reject their own interest.
       // Allowed to change: status and updatedAt. Forbidden: senderUid, receiverUid, createdAt.
-      // affectedKeys().only() is not valid rules syntax; use hasAll() + hasNone() instead.
+      // affectedKeys().only() is not valid rules syntax; use hasAll() + !hasAny() instead.
       allow update: if isAuthenticated() &&
         resource.data.receiverUid == request.auth.uid &&
         // status must be among the changed keys (acceptance requires a status transition)
         request.resource.data.diff(resource.data).affectedKeys().hasAll(['status']) &&
         // forbidden identity/timestamp fields must not change
-        request.resource.data.diff(resource.data).affectedKeys().hasNone(['senderUid', 'receiverUid', 'createdAt']) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['senderUid', 'receiverUid', 'createdAt']) &&
         // new status must be a valid value
         request.resource.data.status in ['accepted', 'rejected'];
 
