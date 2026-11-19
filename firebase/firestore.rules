@@ -64,13 +64,14 @@ service cloud.firestore {
     // path (Firestore rules cannot run collection queries inside exists()).
     // FIXED: check participants in EITHER order (the deterministic ID sorts UIDs,
     // so the requester may be participantOne or participantTwo).
+    // FIXED: use exists(path) instead of get().exists to avoid null-evaluation errors.
     function hasAcceptedMatch(otherUid) {
       let mid = matchDocId(request.auth.uid, otherUid);
-      let m = get(/databases/$(database)/documents/matches/$(mid));
-      return m.exists
-        && m.data.accepted == true
-        && ((m.data.participantOne == request.auth.uid && m.data.participantTwo == otherUid)
-         || (m.data.participantTwo == request.auth.uid && m.data.participantOne == otherUid));
+      let midPath = /databases/$(database)/documents/matches/$(mid);
+      return exists(midPath)
+        && get(midPath).data.accepted == true
+        && ((get(midPath).data.participantOne == request.auth.uid && get(midPath).data.participantTwo == otherUid)
+         || (get(midPath).data.participantTwo == request.auth.uid && get(midPath).data.participantOne == otherUid));
     }
 
     // ==========================================
@@ -139,10 +140,12 @@ service cloud.firestore {
         request.resource.data.senderUid == request.auth.uid &&
         request.resource.data.receiverUid != request.auth.uid;
 
-      // Receiver can accept (change status) their own interests
+      // Receiver can accept (change status) their own interests.
+      // affectedKeys().only() is not valid rules syntax; use hasAll() + size() instead.
       allow update: if isAuthenticated() &&
         resource.data.receiverUid == request.auth.uid &&
-        request.resource.data.diff(resource.data).affectedKeys().only(['status']) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasAll(['status']) &&
+        request.resource.data.diff(resource.data).affectedKeys().size() == 1 &&
         request.resource.data.status in ['accepted', 'rejected'];
 
       // Sender can delete their own interest
@@ -165,11 +168,13 @@ service cloud.firestore {
       allow create: if false; // Enforced by backend
 
       // Only participants can update acceptance status. Guard resource.data with exists().
+      // affectedKeys().only() is not valid rules syntax; use hasAll() + size() instead.
       allow update: if isAuthenticated() &&
         exists(/databases/$(database)/documents/matches/$(matchId)) &&
         (resource.data.participantOne == request.auth.uid ||
          resource.data.participantTwo == request.auth.uid) &&
-        request.resource.data.diff(resource.data).affectedKeys().only(['accepted']);
+        request.resource.data.diff(resource.data).affectedKeys().hasAll(['accepted']) &&
+        request.resource.data.diff(resource.data).affectedKeys().size() == 1;
 
       // Only admins can delete
       allow delete: if isAdmin();
@@ -206,10 +211,10 @@ service cloud.firestore {
       // lookup with exists() so a missing conversation denies cleanly instead of
       // raising a null-evaluation error.
       function isConversationParticipant() {
-        let conv = get(/databases/$(database)/documents/conversations/$(conversationId));
-        return conv.exists &&
-          (conv.data.participantOne == request.auth.uid ||
-           conv.data.participantTwo == request.auth.uid);
+        let convPath = /databases/$(database)/documents/conversations/$(conversationId);
+        return exists(convPath) &&
+          (get(convPath).data.participantOne == request.auth.uid ||
+           get(convPath).data.participantTwo == request.auth.uid);
       }
 
       allow read: if isAuthenticated() &&

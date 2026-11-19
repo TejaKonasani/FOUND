@@ -890,6 +890,146 @@ describe("favorites & notifications — owner-scoped", () => {
 });
 
 // ---------------------------------------------------------------------------
+// interests/{interestId} — interest requests (regression tests)
+// ---------------------------------------------------------------------------
+
+describe("interests/{interestId} — interest requests", () => {
+  beforeEach(async () => {
+    await seedUser("alice");
+    await seedUser("bob");
+    await seedUser("carol");
+  });
+
+  test("sender can create an interest to another user", async () => {
+    await assertSucceeds(
+      setDoc(doc(ctx("alice").firestore(), "interests", "i1"), {
+        senderUid: "alice",
+        receiverUid: "bob",
+        status: "pending",
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      })
+    );
+  });
+
+  test("user CANNOT create an interest to themselves", async () => {
+    await assertFails(
+      setDoc(doc(ctx("alice").firestore(), "interests", "i1"), {
+        senderUid: "alice",
+        receiverUid: "alice",
+        status: "pending",
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      })
+    );
+  });
+
+  test("receiver can accept their own interest (status only)", async () => {
+    await setDoc(doc(ctx("alice").firestore(), "interests", "i1"), {
+      senderUid: "alice",
+      receiverUid: "bob",
+      status: "pending",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    });
+    await assertSucceeds(
+      updateDoc(doc(ctx("bob").firestore(), "interests", "i1"), {
+        status: "accepted",
+        updatedAt: "2026-02-01T00:00:00Z",
+      })
+    );
+  });
+
+  test("receiver CANNOT change fields other than status", async () => {
+    await setDoc(doc(ctx("alice").firestore(), "interests", "i1"), {
+      senderUid: "alice",
+      receiverUid: "bob",
+      status: "pending",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    });
+    await assertFails(
+      updateDoc(doc(ctx("bob").firestore(), "interests", "i1"), {
+        status: "accepted",
+        senderUid: "carol",
+        updatedAt: "2026-02-01T00:00:00Z",
+      })
+    );
+  });
+
+  test("non-receiver CANNOT update an interest", async () => {
+    await setDoc(doc(ctx("alice").firestore(), "interests", "i1"), {
+      senderUid: "alice",
+      receiverUid: "bob",
+      status: "pending",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    });
+    await assertFails(
+      updateDoc(doc(ctx("carol").firestore(), "interests", "i1"), {
+        status: "accepted",
+      })
+    );
+  });
+
+  test("sender can delete their own interest", async () => {
+    await setDoc(doc(ctx("alice").firestore(), "interests", "i1"), {
+      senderUid: "alice",
+      receiverUid: "bob",
+      status: "pending",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    });
+    await assertSucceeds(
+      deleteDoc(doc(ctx("alice").firestore(), "interests", "i1"))
+    );
+  });
+
+  test("non-sender CANNOT delete another user's interest", async () => {
+    await setDoc(doc(ctx("alice").firestore(), "interests", "i1"), {
+      senderUid: "alice",
+      receiverUid: "bob",
+      status: "pending",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    });
+    await assertFails(
+      deleteDoc(doc(ctx("carol").firestore(), "interests", "i1"))
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Missing-document reads — regression tests for null-evaluation guards
+// ---------------------------------------------------------------------------
+
+describe("missing-document reads — null-evaluation guards", () => {
+  beforeEach(async () => {
+    await seedUser("alice");
+    await seedUser("bob");
+  });
+
+  test("read of a nonexistent profile denies cleanly (no null error)", async () => {
+    // No profile seeded for alice — read must deny without raising an error.
+    await assertFails(readDoc(ctx("bob"), "profiles/alice"));
+  });
+
+  test("read of a nonexistent match denies cleanly (no null error)", async () => {
+    await assertFails(readDoc(ctx("alice"), "matches/nonexistent_match"));
+  });
+
+  test("read of a nonexistent conversation denies cleanly (no null error)", async () => {
+    await assertFails(readDoc(ctx("alice"), "conversations/nonexistent_conv"));
+  });
+
+  test("read of messages in a nonexistent conversation denies cleanly", async () => {
+    await assertFails(
+      readCollection(ctx("alice"), "conversations/nonexistent_conv/messages")
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Global deny-by-default catch-all
 // ---------------------------------------------------------------------------
 
