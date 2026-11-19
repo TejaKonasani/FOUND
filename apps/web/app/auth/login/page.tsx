@@ -10,6 +10,7 @@ import { auth } from '@/lib/firebase';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { validateEmail } from '@/lib/utils';
+import { DEMO_LOGIN_ENABLED, DEMO_CREDENTIALS } from '@/lib/demo-config';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,6 +20,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,6 +85,34 @@ export default function LoginPage() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDemoLogin = async () => {
+    if (!DEMO_LOGIN_ENABLED) {
+      setError('Demo login is not available in this environment.');
+      return;
+    }
+    setError('');
+    setDemoLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, DEMO_CREDENTIALS.email, DEMO_CREDENTIALS.password);
+      router.replace('/onboarding');
+    } catch (err: unknown) {
+      const firebaseError = err as { code?: string; message?: string };
+      let message = 'Demo login failed. Make sure the demo account is seeded and the Firebase Emulator is running.';
+      if (
+        firebaseError.code === 'auth/invalid-credential' ||
+        firebaseError.code === 'auth/wrong-password' ||
+        firebaseError.code === 'auth/user-not-found'
+      ) {
+        message = 'Demo account not found. Run: npm run demo:seed --prefix firebase';
+      } else if (firebaseError.code === 'auth/too-many-requests') {
+        message = 'Too many failed attempts. Please try again later.';
+      }
+      setError(message);
+    } finally {
+      setDemoLoading(false);
     }
   };
 
@@ -262,6 +292,57 @@ export default function LoginPage() {
                   {!loading && <ArrowRight className="h-4 w-4" />}
                 </button>
               </form>
+
+              {DEMO_LOGIN_ENABLED && (
+                <>
+                  <div className="my-6 flex items-center gap-4">
+                    <div className="h-px flex-1 bg-gradient-to-r from-transparent via-found-rose/20 to-transparent" />
+                    <span className="text-xs font-medium uppercase tracking-wider text-found-plum/40">
+                      or explore FOUND
+                    </span>
+                    <div className="h-px flex-1 bg-gradient-to-r from-transparent via-found-rose/20 to-transparent" />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleDemoLogin}
+                    disabled={demoLoading}
+                    className="w-full rounded-2xl border border-found-rose/20 bg-gradient-to-r from-found-ivory to-white py-3.5 text-sm font-semibold text-found-burgundy shadow-sm transition-all hover:border-found-rose/40 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+                    aria-label="Sign in with demo account"
+                  >
+                    {demoLoading ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg
+                          className="h-4 w-4 animate-spin text-found-rose"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
+                        </svg>
+                        Signing in...
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center gap-2">
+                        <Sparkles className="h-4 w-4 text-found-rose" />
+                        Explore with Demo Account
+                      </span>
+                    )}
+                  </button>
+                </>
+              )}
 
               <p className="mt-8 text-center text-sm text-found-plum/60">
                 Don&apos;t have a profile?{' '}

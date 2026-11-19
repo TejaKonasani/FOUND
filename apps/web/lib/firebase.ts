@@ -40,4 +40,30 @@ if (getApps().length === 0) {
 // Export initialized services
 export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
+
+// Connect to Firebase Emulators when explicitly enabled (development only).
+// This must run before any auth/firestore operations.
+if (process.env.NEXT_PUBLIC_FIREBASE_USE_EMULATOR === "true") {
+  const authEmulatorHost = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST;
+  const firestoreEmulatorHost =
+    process.env.NEXT_PUBLIC_FIREBASE_FIRESTORE_EMULATOR_HOST;
+
+  if (authEmulatorHost) {
+    const { connectAuthEmulator } = require("firebase/auth");
+    connectAuthEmulator(auth, `http://${authEmulatorHost}`, {
+      disableWarnings: true,
+    });
+    console.log(`[FOUND] Connected to Auth Emulator at ${authEmulatorHost}`);
+  }
+
+  if (firestoreEmulatorHost) {
+    const { connectFirestoreEmulator } = require("firebase/firestore");
+    const [host, port = "8080"] = firestoreEmulatorHost.split(":");
+    connectFirestoreEmulator(db, host, Number(port));
+    console.log(
+      `[FOUND] Connected to Firestore Emulator at ${host}:${port}`
+    );
+  }
+}
+
 export default app;

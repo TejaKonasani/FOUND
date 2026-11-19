@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@/lib/*": ["./lib/*"],
+      "@/components/*": ["./components/*"],
+      "@/contexts/*": ["./contexts/*"]
+    }
+  },
+  "include": [
+    "lib/*.ts",
+    "app/**/*.tsx",
+    "app/**/*.ts",
+    "components/**/*.tsx",
+    "contexts/**/*.tsx"
+  ],
+  "exclude": ["node_modules"]
+}
