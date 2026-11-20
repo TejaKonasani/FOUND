@@ -22,7 +22,7 @@ export function Header() {
 
   useEffect(() => {
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20);
+      setIsScrolled(window.scrollY > 40);
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
@@ -45,13 +45,14 @@ export function Header() {
         className={cn(
           'fixed top-0 left-0 right-0 z-50 transition-all duration-500',
           isScrolled
-            ? 'bg-white/90 backdrop-blur-xl shadow-soft py-3'
-            : 'bg-transparent py-5'
+            ? 'bg-[rgba(255,242,248,0.82)] backdrop-blur-xl shadow-soft py-3'
+            : 'bg-transparent shadow-none border-b-0 py-5'
         )}
       >
         <div className="container-page flex items-center justify-between">
           <Link href="/" className="z-50 flex-shrink-0" aria-label="FOUND Home">
-            <Logo className="h-10 w-auto" />
+            {/* White variant when transparent over hero image */}
+            <Logo className="h-10 w-auto" variant={isScrolled ? 'default' : 'white'} />
           </Link>
 
           {/* Desktop Navigation */}
@@ -64,7 +65,7 @@ export function Header() {
                   'px-4 py-2 text-sm font-medium rounded-full transition-all duration-300',
                   isScrolled
                     ? 'text-found-plum/80 hover:text-found-rose hover:bg-found-blush'
-                    : 'text-found-plum/90 hover:text-found-rose hover:bg-white/50'
+                    : 'text-white/90 hover:text-white hover:bg-white/20'
                 )}
               >
                 {link.label}
@@ -80,14 +81,19 @@ export function Header() {
                 'px-5 py-2.5 text-sm font-medium rounded-full transition-all duration-300',
                 isScrolled
                   ? 'text-found-plum hover:text-found-rose'
-                  : 'text-found-plum/90 hover:text-found-rose'
+                  : 'text-white/90 hover:text-white'
               )}
             >
               Login
             </Link>
             <Link
               href="/auth/register"
-              className="btn-primary !px-5 !py-2.5 !text-sm"
+              className={cn(
+                'px-5 py-2.5 text-sm font-medium rounded-full transition-all duration-300',
+                isScrolled
+                  ? 'btn-primary !px-5 !py-2.5 !text-sm'
+                  : 'bg-white/20 text-white border-2 border-white/50 hover:bg-white/30 backdrop-blur-sm'
+              )}
             >
               Create Profile
             </Link>
@@ -96,7 +102,12 @@ export function Header() {
           {/* Mobile Menu Button */}
           <button
             onClick={() => setIsMobileMenuOpen(true)}
-            className="lg:hidden z-50 p-2 rounded-full text-found-plum hover:bg-found-blush transition-colors"
+            className={cn(
+              'lg:hidden z-50 p-2 rounded-full transition-colors',
+              isScrolled
+                ? 'text-found-plum hover:bg-found-blush'
+                : 'text-white hover:bg-white/20'
+            )}
             aria-label="Open menu"
           >
             <Menu className="h-6 w-6" />
@@ -113,7 +124,7 @@ export function Header() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm lg:hidden"
+              className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
               onClick={() => setIsMobileMenuOpen(false)}
             />
             <motion.div
@@ -125,7 +136,7 @@ export function Header() {
             >
               <div className="flex h-full flex-col p-6">
                 <div className="flex items-center justify-between mb-8">
-                  <Logo className="h-9 w-auto" />
+                  <Logo className="h-9 w-auto" variant="default" />
                   <button
                     onClick={() => setIsMobileMenuOpen(false)}
                     className="p-2 rounded-full text-found-plum hover:bg-found-blush transition-colors"
